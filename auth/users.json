@@ -1,0 +1,23 @@
+[
+    {
+        "username": "admin",
+        "password": "admin123",
+        "role": "admin",
+        "name": "Administrator",
+        "email": "admin@cognitivequest.com"
+    },
+    {
+        "username": "teacher",
+        "password": "teacher123",
+        "role": "teacher",
+        "name": "Sarah Johnson",
+        "email": "sarah.johnson@school.edu"
+    },
+    {
+        "username": "demo",
+        "password": "demo123",
+        "role": "viewer",
+        "name": "Demo User",
+        "email": "demo@example.com"
+    }
+]
