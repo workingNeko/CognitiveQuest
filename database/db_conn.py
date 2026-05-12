@@ -23,15 +23,31 @@ class DatabaseConnection:
         return cls._instance
 
     def __init__(self):
+        # Localhost configuration (currently active)
+        # self.config = {
+        #     "host": "localhost",
+        #     "user": "root",
+        #     "password": "",
+        #     "database": "cognitivequest",
+        #     "charset": "utf8mb4",
+        #     "use_unicode": True,
+        #     "autocommit": False,
+        # }
+
+        #Online Railway configuration (commented out - switch to this when needed)
         self.config = {
-            "host": "localhost",
+            "host": "yamabiko.proxy.rlwy.net",
             "user": "root",
-            "password": "",
-            "database": "cognitivequest",
+            "password": "KGJzKnCwbldVqELfuesOqxFSboLfmLBq",
+            "database": "railway",
+            "port": 3306,
             "charset": "utf8mb4",
             "use_unicode": True,
-            "autocommit": False
+            "autocommit": False,
         }
+
+
+
         self.connection = None
         self.cursor = None
         self.max_retries = 3
