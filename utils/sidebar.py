@@ -19,7 +19,7 @@ def show_sidebar():
             """, unsafe_allow_html=True)
 
         st.markdown("## 🧠 Cognitive Quest")
-        st.caption("Admin Dashboard")
+        st.caption(f" {user['role'].capitalize()} Dashboard" if user else "Dashboard")
         st.divider()
 
         # Navigation links
@@ -40,4 +40,4 @@ def show_sidebar():
         # Logout button
         if st.button("🚪 Logout", type="secondary", use_container_width=True):
             logout_user()
-            st.rerun()
+            st.switch_page("main.py")

@@ -39,7 +39,7 @@ st.title("🎮 Game Content")
 st.write("Manage game levels and content")
 
 # -----------------------------
-# INITIALIZE GAMES DATA (with extended Catch Game parameters)
+# INITIALIZE GAMES DATA (with extended Catch Game, Hidden Object, and Mini Puzzle parameters)
 # -----------------------------
 if "games_data" not in st.session_state:
     st.session_state.games_data = [
@@ -75,7 +75,14 @@ if "games_data" not in st.session_state:
             "description": "Find hidden objects in complex scenes to enhance observation skills",
             "difficulty": "Easy",
             "time_limit": 90,
-            "points": 100
+            "points": 100,
+            "toys_to_find": 5,
+            "idle_shake_timer": 3,
+            "shake_intensity": 4,
+            "shake_frequency_x": 12,
+            "shake_frequency_y": 15,
+            "points_per_object": 10,
+            "completion_percentage": 100
         },
         {
             "id": 3,
@@ -84,7 +91,11 @@ if "games_data" not in st.session_state:
             "description": "Solve puzzles to improve problem-solving abilities",
             "difficulty": "Medium",
             "time_limit": 90,
-            "points": 100
+            "points": 100,
+            "puzzle_rows": 2,
+            "puzzle_cols": 2,
+            "points_per_piece": 25,
+            "completion_percentage": 100
         },
         {
             "id": 4,
@@ -115,7 +126,8 @@ if "games_data" not in st.session_state:
         }
     ]
 
-# Helper to render Catch Game specific fields (without question editing UI)
+
+# Helper to render Catch Game specific fields
 def render_catch_game_settings(prefix="", default_values=None):
     if default_values is None:
         default_values = {}
@@ -143,13 +155,12 @@ def render_catch_game_settings(prefix="", default_values=None):
                                       value=default_values.get("spawn_delay", 2.0), key=f"{prefix}delay")
         basket_speed = st.number_input("Basket speed", min_value=5, max_value=20,
                                        value=default_values.get("basket_speed", 12), key=f"{prefix}basket")
-    # Question mode (no UI for editing questions)
+    # Question mode
     question_enabled = st.checkbox("Enable question mode (color/shape quiz)",
                                    value=default_values.get("question_mode_enabled", True), key=f"{prefix}q_enabled")
 
     # Handle questions JSON without showing UI
     if question_enabled:
-        # Preserve existing questions if provided, otherwise use default set
         if default_values and "questions" in default_values:
             questions_json = default_values["questions"]
         else:
@@ -177,6 +188,165 @@ def render_catch_game_settings(prefix="", default_values=None):
         "questions": questions_json
     }
 
+
+# Helper to render Hidden Object Game specific fields
+def render_hidden_object_settings(prefix="", default_values=None):
+    if default_values is None:
+        default_values = {}
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        toys_to_find = st.number_input(
+            "Number of Toys to Find",
+            min_value=3,
+            max_value=15,
+            value=default_values.get("toys_to_find", 5),
+            key=f"{prefix}toys_to_find",
+            help="Total number of hidden toys in the scene"
+        )
+
+        idle_shake_timer = st.number_input(
+            "Idle Shake Timer (seconds)",
+            min_value=1,
+            max_value=10,
+            value=default_values.get("idle_shake_timer", 3),
+            key=f"{prefix}idle_shake",
+            help="How long before toys start shaking when idle"
+        )
+
+    with col2:
+        shake_intensity = st.slider(
+            "Shake Intensity (pixels)",
+            min_value=2,
+            max_value=10,
+            value=default_values.get("shake_intensity", 4),
+            key=f"{prefix}shake_intensity",
+            help="How much the toys shake when idle"
+        )
+
+        shake_frequency_x = st.slider(
+            "Shake Frequency X (Hz)",
+            min_value=5,
+            max_value=25,
+            value=default_values.get("shake_frequency_x", 12),
+            key=f"{prefix}shake_freq_x",
+            help="Horizontal shake speed"
+        )
+
+    with col3:
+        shake_frequency_y = st.slider(
+            "Shake Frequency Y (Hz)",
+            min_value=5,
+            max_value=25,
+            value=default_values.get("shake_frequency_y", 15),
+            key=f"{prefix}shake_freq_y",
+            help="Vertical shake speed"
+        )
+
+        points_per_object = st.number_input(
+            "Points per Object",
+            min_value=5,
+            max_value=100,
+            value=default_values.get("points_per_object", 10),
+            key=f"{prefix}points_per",
+            help="Points awarded for finding each object"
+        )
+
+    # Completion percentage in a separate row
+    st.markdown("### 🎯 Game Completion Settings")
+    completion_percentage = st.slider(
+        "Completion Required (%)",
+        min_value=50,
+        max_value=100,
+        value=default_values.get("completion_percentage", 100),
+        key=f"{prefix}completion",
+        help="Percentage of toys needed to complete the game"
+    )
+
+    return {
+        "toys_to_find": toys_to_find,
+        "idle_shake_timer": idle_shake_timer,
+        "shake_intensity": shake_intensity,
+        "shake_frequency_x": shake_frequency_x,
+        "shake_frequency_y": shake_frequency_y,
+        "points_per_object": points_per_object,
+        "completion_percentage": completion_percentage
+    }
+
+
+# Helper to render Mini Puzzle Game specific fields
+def render_mini_puzzle_settings(prefix="", default_values=None):
+    if default_values is None:
+        default_values = {}
+
+    # Calculate points per piece based on total pieces
+    def calculate_points_per_piece(rows, cols):
+        total_pieces = rows * cols
+        # Base points: 100 / total_pieces, then round to nearest 5
+        base_points = 100 / total_pieces
+        # Round to nearest 5 (minimum 5, maximum 100)
+        points = max(5, min(100, round(base_points / 5) * 5))
+        return points
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        puzzle_rows = st.selectbox(
+            "Puzzle Rows",
+            options=[1, 2, 3, 4],
+            index=[1, 2, 3, 4].index(default_values.get("puzzle_rows", 2)),
+            key=f"{prefix}rows",
+            help="Number of rows in the puzzle grid"
+        )
+
+        puzzle_cols = st.selectbox(
+            "Puzzle Columns",
+            options=[1, 2, 3, 4],
+            index=[1, 2, 3, 4].index(default_values.get("puzzle_cols", 2)),
+            key=f"{prefix}cols",
+            help="Number of columns in the puzzle grid"
+        )
+
+    with col2:
+        total_pieces = puzzle_rows * puzzle_cols
+        st.info(f"📊 **Total Pieces:** {total_pieces}")
+
+        # Auto-calculate points per piece based on dimensions
+        auto_points = calculate_points_per_piece(puzzle_rows, puzzle_cols)
+
+        # Display as informational text (not editable)
+        st.markdown(f"**Points per Piece:** `{auto_points}` points")
+        st.caption(
+            "✨ Points are automatically calculated based on puzzle size (100 ÷ total pieces, rounded to nearest 5)")
+
+        # Show formula explanation
+        st.markdown(f"*Formula: 100 ÷ {total_pieces} = {100 / total_pieces:.1f} → rounded to {auto_points}*")
+
+    st.markdown("### 🎯 Game Completion Settings")
+    completion_percentage = st.slider(
+        "Completion Required (%)",
+        min_value=50,
+        max_value=100,
+        value=default_values.get("completion_percentage", 100),
+        key=f"{prefix}completion",
+        help="Percentage of pieces needed to complete the puzzle"
+    )
+
+    # Calculate max possible points
+    max_points = total_pieces * auto_points
+    points_needed = int(max_points * (completion_percentage / 100))
+    st.caption(f"💰 **Max Possible Points:** {max_points} points")
+    st.caption(f"🎯 **Points needed for {completion_percentage}% completion:** {points_needed} points")
+
+    return {
+        "puzzle_rows": puzzle_rows,
+        "puzzle_cols": puzzle_cols,
+        "points_per_piece": auto_points,
+        "completion_percentage": completion_percentage
+    }
+
+
 # -----------------------------
 # DISPLAY GAMES BY LEVEL WITH WIDE POPOVER EDIT
 # -----------------------------
@@ -203,9 +373,23 @@ for idx, level in enumerate(levels):
                     with col3:
                         st.markdown("**Points**")
                         st.write(f"⭐ {game['points']}")
-                        if "target_circles" in game:
+                        # Show game-specific stats
+                        if "target_circles" in game and game.get("game_name") == "Catch Game":
                             st.markdown("**Targets**")
-                            st.write(f"🔵 {game['target_circles']} 🟩 {game['target_squares']} 🔺 {game['target_triangles']}")
+                            st.write(
+                                f"🔵 {game['target_circles']} 🟩 {game['target_squares']} 🔺 {game['target_triangles']}")
+                        elif "toys_to_find" in game and game.get("game_name") == "Hidden Object":
+                            st.markdown("**Toys**")
+                            st.write(f"🧸 {game['toys_to_find']} items")
+                            st.markdown("**Points per object**")
+                            st.write(f"⭐ {game.get('points_per_object', 10)}")
+                        elif "puzzle_rows" in game and game.get("game_name") == "Mini Puzzle":
+                            total_pieces = game.get("puzzle_rows", 2) * game.get("puzzle_cols", 2)
+                            st.markdown("**Puzzle Size**")
+                            st.write(
+                                f"🧩 {game.get('puzzle_rows', 2)}x{game.get('puzzle_cols', 2)} ({total_pieces} pieces)")
+                            st.markdown("**Points per piece**")
+                            st.write(f"⭐ {game.get('points_per_piece', 25)} (auto-calculated)")
                     with col4:
                         st.markdown("**Actions**")
 
@@ -248,14 +432,16 @@ for idx, level in enumerate(levels):
                                     key=f"edit_time_{game['id']}"
                                 )
                                 edit_points = st.number_input(
-                                    "Points",
+                                    "Total Points",
                                     min_value=50,
                                     max_value=500,
                                     value=game["points"],
-                                    key=f"edit_points_{game['id']}"
+                                    key=f"edit_points_{game['id']}",
+                                    help="Base points awarded for completing the game"
                                 )
 
-                            if "Catch" in game["game_name"]:
+                            # Catch Game specific settings
+                            if game["game_name"] == "Catch Game":
                                 st.markdown("### 🎯 Catch Game Specific Settings")
                                 defaults = {
                                     "target_circles": game.get("target_circles", 5),
@@ -278,6 +464,41 @@ for idx, level in enumerate(levels):
                             else:
                                 catch_updates = None
 
+                            # Hidden Object Game specific settings
+                            if game["game_name"] == "Hidden Object":
+                                st.markdown("### 🔍 Hidden Object Game Specific Settings")
+                                defaults = {
+                                    "toys_to_find": game.get("toys_to_find", 5),
+                                    "idle_shake_timer": game.get("idle_shake_timer", 3),
+                                    "shake_intensity": game.get("shake_intensity", 4),
+                                    "shake_frequency_x": game.get("shake_frequency_x", 12),
+                                    "shake_frequency_y": game.get("shake_frequency_y", 15),
+                                    "points_per_object": game.get("points_per_object", 10),
+                                    "completion_percentage": game.get("completion_percentage", 100)
+                                }
+                                hidden_updates = render_hidden_object_settings(
+                                    prefix=f"edit_{game['id']}_",
+                                    default_values=defaults
+                                )
+                            else:
+                                hidden_updates = None
+
+                            # Mini Puzzle Game specific settings
+                            if game["game_name"] == "Mini Puzzle":
+                                st.markdown("### 🧩 Mini Puzzle Specific Settings")
+                                defaults = {
+                                    "puzzle_rows": game.get("puzzle_rows", 2),
+                                    "puzzle_cols": game.get("puzzle_cols", 2),
+                                    "points_per_piece": game.get("points_per_piece", 25),
+                                    "completion_percentage": game.get("completion_percentage", 100)
+                                }
+                                puzzle_updates = render_mini_puzzle_settings(
+                                    prefix=f"edit_{game['id']}_",
+                                    default_values=defaults
+                                )
+                            else:
+                                puzzle_updates = None
+
                             if st.button("💾 Save Changes", type="primary", key=f"save_{game['id']}"):
                                 game["level"] = edit_level
                                 game["game_name"] = edit_game_name
@@ -288,6 +509,12 @@ for idx, level in enumerate(levels):
 
                                 if catch_updates:
                                     game.update(catch_updates)
+
+                                if hidden_updates:
+                                    game.update(hidden_updates)
+
+                                if puzzle_updates:
+                                    game.update(puzzle_updates)
 
                                 for i, g in enumerate(st.session_state.games_data):
                                     if g["id"] == game["id"]:
