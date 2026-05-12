@@ -3,12 +3,12 @@ from database.db_conn import admin_exists, create_admin
 from auth.login import login_user, logout_user, is_authenticated, check_session_expiry
 import mysql.connector
 
+
 # Page configuration
 st.set_page_config(
     page_title="Cognitive Quest",
     page_icon="🎮",
     layout="wide"
-
 )
 
 if not st.session_state.get("logged_in", False):
@@ -66,7 +66,7 @@ def admin_creation_dialog():
                     st.balloons()
                     st.rerun()
                 except mysql.connector.IntegrityError:
-                    st.error("❌ Username already exists. Please choose a different username.")
+                    st.error("❌ Username or email already exists. Please choose different credentials.")
                 except Exception as e:
                     st.error(f"❌ Error creating admin account: {str(e)}")
 
@@ -142,19 +142,6 @@ elif is_authenticated():
         st.warning("Session expired. Please login again.")
         logout_user()
         st.rerun()
-
-    # Sidebar user info
-    with st.sidebar:
-        st.header("👤 User Profile")
-        st.write(f"**Username:** {st.session_state.user['username']}")
-        st.write(f"**Email:** {st.session_state.user.get('email', 'Not provided')}")
-        st.write(f"**Role:** {st.session_state.user['role']}")
-        st.write(f"**Member since:** {st.session_state.user['created_at']}")
-        st.divider()
-
-        if st.button("🚪 Logout", use_container_width=True):
-            logout_user()
-            st.rerun()
 
     # Redirect to dashboard
     st.switch_page("pages/1_Dashboard.py")

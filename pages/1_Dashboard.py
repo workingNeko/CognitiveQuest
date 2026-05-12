@@ -96,4 +96,15 @@ st.plotly_chart(fig2, use_container_width=True)
 # STUDENT TABLE
 # -----------------------------
 st.subheader("Student Data")
-st.dataframe(students, use_container_width=True)
+
+# Make a copy to avoid modifying the original
+display_df = students.copy()
+
+# Reset index to start from 1
+display_df.index = range(1, len(display_df) + 1)
+
+# Optionally, hide the student_id column if it exists
+if 'student_id' in display_df.columns:
+    display_df = display_df.drop(columns=['student_id'])
+
+st.dataframe(display_df, use_container_width=True)

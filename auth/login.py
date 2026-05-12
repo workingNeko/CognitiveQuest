@@ -1,46 +1,37 @@
 import streamlit as st
 from datetime import datetime, timedelta
-from database.db_conn import get_connection
-from .security import verify_password
+from database.db_conn import get_connection, get_user_by_username, update_user_last_login, verify_password
 
 
 def login_user(username, password):
     """Authenticate user"""
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    try:
+        user = get_user_by_username(username)
 
-    query = "SELECT * FROM users WHERE username=%s"
-    cursor.execute(query, (username,))
-    user = cursor.fetchone()
+        if user and verify_password(password, user["password_hash"]):
+            # Update last login
+            update_user_last_login(user["user_id"])
 
-    if user and verify_password(password, user["password_hash"]):
-        # Update last login
-        cursor.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE user_id = %s",
-            (user["user_id"],)
-        )
-        conn.commit()
+            # Create session
+            st.session_state.logged_in = True
+            st.session_state.user = {
+                "user_id": user["user_id"],
+                "username": user["username"],
+                "email": user["email"],
+                "role": user["role"],
+                "created_at": str(user["created_at"]),
+                "last_login": str(datetime.now()),
+                "name": user["username"],
+                "login_time": datetime.now().isoformat()
+            }
 
-        # Create session
-        st.session_state.logged_in = True
-        st.session_state.user = {
-            "user_id": user["user_id"],
-            "username": user["username"],
-            "email": user["email"],
-            "role": user["role"],
-            "created_at": str(user["created_at"]),
-            "last_login": str(datetime.now()),
-            "name": user["username"],
-            "login_time": datetime.now().isoformat()
-        }
+            return True
 
-        cursor.close()
-        conn.close()
-        return True
+        return False
 
-    cursor.close()
-    conn.close()
-    return False
+    except Exception as e:
+        st.error(f"Login error: {e}")
+        return False
 
 
 def logout_user():
@@ -68,9 +59,12 @@ def check_session_expiry():
     user = get_current_user()
 
     if user and "login_time" in user:
-        login_time = datetime.fromisoformat(user["login_time"])
-        if datetime.now() - login_time > timedelta(hours=24):
-            logout_user()
-            return False
+        try:
+            login_time = datetime.fromisoformat(user["login_time"])
+            if datetime.now() - login_time > timedelta(hours=24):
+                logout_user()
+                return False
+        except (ValueError, TypeError):
+            pass
 
     return True
