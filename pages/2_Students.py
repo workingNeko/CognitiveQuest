@@ -309,7 +309,7 @@ with col2:
 
 if not filtered.empty:
     # Display without the student_id column and use dataframe index
-    display_df = filtered.drop(columns=['student_id']).copy()
+    display_df = filtered.drop(columns=['student_id', 'Score']).copy()
     # Reset index to start from 1
     display_df.index = range(1, len(display_df) + 1)
 

@@ -26,7 +26,7 @@ def show_sidebar():
         st.page_link("pages/1_Dashboard.py", label="📊 Dashboard")
         st.page_link("pages/2_Students.py", label="👨‍🎓 Students")
         st.page_link("pages/3_Content.py", label="🎮 Game Content")
-        st.page_link("pages/4_Analytics.py", label="📈 Analytics")
+        #st.page_link("pages/4_Analytics.py", label="📈 Analytics")
         st.page_link("pages/5_Settings.py", label="⚙️ Settings")
 
         st.divider()
