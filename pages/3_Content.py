@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import json
-
+from decimal import Decimal
+from database.db_conn import db
 from utils.sidebar import show_sidebar
 
 st.set_page_config(
@@ -22,7 +23,7 @@ st.markdown("""
             width: 90vw;
             max-width: 1200px;
         }
-        /* Make the popover trigger button full width to match delete button */
+        /* Make the popover trigger button full width */
         div[data-testid="stPopover"] button {
             width: 190px;
         }
@@ -38,99 +39,413 @@ show_sidebar()
 st.title("🎮 Game Content")
 st.write("Manage game levels and content")
 
+
 # -----------------------------
-# INITIALIZE GAMES DATA (with extended Catch Game, Hidden Object, and Mini Puzzle parameters)
+# DATABASE FUNCTIONS
 # -----------------------------
-if "games_data" not in st.session_state:
-    st.session_state.games_data = [
-        {
-            "id": 1,
-            "level": "Level 1",
-            "game_name": "Catch Game",
-            "description": "Catch falling objects to improve hand-eye coordination",
-            "difficulty": "Easy",
-            "time_limit": 60,
-            "points": 100,
-            "target_circles": 5,
-            "target_squares": 5,
-            "target_triangles": 5,
-            "starting_lives": 5,
-            "points_per_shape": 10,
-            "completion_percentage": 100,
-            "fall_speed_min": 4,
-            "fall_speed_max": 7,
-            "spawn_delay": 2.0,
-            "basket_speed": 12,
-            "question_mode_enabled": True,
-            "questions": json.dumps([
-                {"shape": "square", "correct": "green", "choices": ["green", "blue"]},
-                {"shape": "triangle", "correct": "yellow", "choices": ["yellow", "pink"]},
-                {"shape": "circle", "correct": "blue", "choices": ["blue", "green"]}
-            ])
-        },
-        {
-            "id": 2,
-            "level": "Level 2",
-            "game_name": "Hidden Object",
-            "description": "Find hidden objects in complex scenes to enhance observation skills",
-            "difficulty": "Easy",
-            "time_limit": 90,
-            "points": 100,
-            "toys_to_find": 5,
-            "idle_shake_timer": 3,
-            "shake_intensity": 4,
-            "shake_frequency_x": 12,
-            "shake_frequency_y": 15,
-            "points_per_object": 10,
-            "completion_percentage": 100
-        },
-        {
-            "id": 3,
-            "level": "Level 3",
-            "game_name": "Mini Puzzle",
-            "description": "Solve puzzles to improve problem-solving abilities",
-            "difficulty": "Medium",
-            "time_limit": 90,
-            "points": 100,
-            "puzzle_rows": 2,
-            "puzzle_cols": 2,
-            "points_per_piece": 25,
-            "completion_percentage": 100
-        },
-        {
-            "id": 4,
-            "level": "Level 4",
-            "game_name": "Name and Remember",
-            "description": "Memory game to enhance recall and recognition",
-            "difficulty": "Medium",
-            "time_limit": 90,
-            "points": 100
-        },
-        {
-            "id": 5,
-            "level": "Level 5",
-            "game_name": "Maze Game",
-            "description": "Navigate through mazes to improve spatial awareness",
-            "difficulty": "Hard",
-            "time_limit": 150,
-            "points": 100
-        },
-        {
-            "id": 6,
-            "level": "Bonus",
-            "game_name": "Knowledge Game",
-            "description": "Test your knowledge with trivia questions",
-            "difficulty": "Hard",
-            "time_limit": 120,
-            "points": 100
-        }
-    ]
+
+def convert_decimal_to_float(data):
+    """Convert Decimal objects to float for Streamlit compatibility"""
+    if isinstance(data, dict):
+        return {k: convert_decimal_to_float(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_decimal_to_float(item) for item in data]
+    elif isinstance(data, Decimal):
+        return float(data)
+    else:
+        return data
 
 
-# Helper to render Catch Game specific fields
+def load_games_from_db():
+    """Load all games and their settings from database"""
+    games = []
+
+    try:
+        with db.get_connection() as (conn, cursor):
+            # Load all games with their levels
+            cursor.execute("""
+                SELECT g.*, COALESCE(gl.level_name, 'Bonus') as level
+                FROM game g
+                LEFT JOIN game_levels gl ON g.level_id = gl.level_id
+                ORDER BY g.game_id
+            """)
+            games_data = cursor.fetchall()
+
+            for game in games_data:
+                game_id = game['game_id']
+                game_name = game['game_name']
+
+                # Convert to dictionary and add id field for compatibility
+                game_dict = convert_decimal_to_float(dict(game))
+                game_dict['id'] = game_id
+
+                # Load Catch Game settings
+                if game_name == 'Catch Game':
+                    cursor.execute("SELECT * FROM catchgamesettings WHERE game_id = %s", (game_id,))
+                    settings = cursor.fetchone()
+                    if settings:
+                        settings = convert_decimal_to_float(settings)
+                        game_dict.update(settings)
+                    else:
+                        # Add default settings if none exist
+                        game_dict.update({
+                            'target_circles': 5,
+                            'target_squares': 5,
+                            'target_triangles': 5,
+                            'starting_lives': 5,
+                            'points_per_shape': 10,
+                            'completion_percentage': 100,
+                            'fall_speed_min': 4,
+                            'fall_speed_max': 7,
+                            'spawn_delay': 2.0,
+                            'basket_speed': 12
+                        })
+
+                # Load Hidden Object settings
+                elif game_name == 'Hidden Object':
+                    cursor.execute("SELECT * FROM hiddenobjectsettings WHERE game_id = %s", (game_id,))
+                    settings = cursor.fetchone()
+                    if settings:
+                        settings = convert_decimal_to_float(settings)
+                        game_dict.update(settings)
+                    else:
+                        game_dict.update({
+                            'toys_to_find': 5,
+                            'idle_shake_timer': 3,
+                            'shake_intensity': 4,
+                            'shake_frequency_x': 12,
+                            'shake_frequency_y': 15,
+                            'points_per_object': 10,
+                            'completion_percentage': 100
+                        })
+
+                # Load Mini Puzzle settings
+                elif game_name == 'Mini Puzzle':
+                    cursor.execute("SELECT * FROM minipuzzlesettings WHERE game_id = %s", (game_id,))
+                    settings = cursor.fetchone()
+                    if settings:
+                        settings = convert_decimal_to_float(settings)
+                        game_dict.update(settings)
+                    else:
+                        game_dict.update({
+                            'puzzle_rows': 2,
+                            'puzzle_cols': 2,
+                            'points_per_piece': 25,
+                            'completion_percentage': 100
+                        })
+
+                games.append(game_dict)
+
+    except Exception as e:
+        st.error(f"Error loading games from database: {e}")
+        return []
+
+    return games
+
+
+def get_levels_from_db():
+    """Load all levels from database"""
+    try:
+        with db.get_connection() as (conn, cursor):
+            cursor.execute("SELECT level_id, level_name FROM game_levels ORDER BY level_id")
+            levels = cursor.fetchall()
+            return [level['level_name'] for level in levels]
+    except Exception as e:
+        st.error(f"Error loading levels: {e}")
+        # Return default levels if table doesn't exist
+        return ["Level 1", "Level 2", "Level 3", "Level 4", "Level 5", "Bonus"]
+
+
+def get_level_id(level_name):
+    """Get level_id from level_name"""
+    try:
+        with db.get_connection() as (conn, cursor):
+            cursor.execute("SELECT level_id FROM game_levels WHERE level_name = %s", (level_name,))
+            result = cursor.fetchone()
+            return result['level_id'] if result else None
+    except Exception:
+        return None
+
+
+def save_game_to_db(game):
+    """Save or update game and its settings to database"""
+    try:
+        with db.get_connection() as (conn, cursor):
+            game_id = game.get('game_id')
+            game_name = game['game_name']
+            level_id = get_level_id(game['level'])
+
+            if game_id:  # Update existing game
+                # Update game table
+                cursor.execute("""
+                    UPDATE game 
+                    SET game_name = %s, description = %s, difficulty = %s, 
+                        time_limit = %s, points = %s, level_id = %s
+                    WHERE game_id = %s
+                """, (game['game_name'], game['description'], game['difficulty'],
+                      game['time_limit'], game['points'], level_id, game_id))
+
+                # Update or insert Catch Game settings
+                if game_name == 'Catch Game':
+                    # Check if settings exist
+                    cursor.execute("SELECT settings_id FROM catchgamesettings WHERE game_id = %s", (game_id,))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        cursor.execute("""
+                            UPDATE catchgamesettings 
+                            SET target_circles = %s, target_squares = %s, target_triangles = %s,
+                                starting_lives = %s, points_per_shape = %s, completion_percentage = %s,
+                                fall_speed_min = %s, fall_speed_max = %s, spawn_delay = %s,
+                                basket_speed = %s
+                            WHERE game_id = %s
+                        """, (game.get('target_circles', 5), game.get('target_squares', 5),
+                              game.get('target_triangles', 5), game.get('starting_lives', 5),
+                              game.get('points_per_shape', 10), game.get('completion_percentage', 100),
+                              game.get('fall_speed_min', 4), game.get('fall_speed_max', 7),
+                              game.get('spawn_delay', 2.0), game.get('basket_speed', 12), game_id))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO catchgamesettings 
+                            (game_id, target_circles, target_squares, target_triangles, starting_lives,
+                             points_per_shape, completion_percentage, fall_speed_min, fall_speed_max,
+                             spawn_delay, basket_speed)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (game_id, game.get('target_circles', 5), game.get('target_squares', 5),
+                              game.get('target_triangles', 5), game.get('starting_lives', 5),
+                              game.get('points_per_shape', 10), game.get('completion_percentage', 100),
+                              game.get('fall_speed_min', 4), game.get('fall_speed_max', 7),
+                              game.get('spawn_delay', 2.0), game.get('basket_speed', 12)))
+
+                # Update Hidden Object settings
+                elif game_name == 'Hidden Object':
+                    cursor.execute("SELECT settings_id FROM hiddenobjectsettings WHERE game_id = %s", (game_id,))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        cursor.execute("""
+                            UPDATE hiddenobjectsettings 
+                            SET toys_to_find = %s, idle_shake_timer = %s, shake_intensity = %s,
+                                shake_frequency_x = %s, shake_frequency_y = %s, points_per_object = %s,
+                                completion_percentage = %s
+                            WHERE game_id = %s
+                        """, (game.get('toys_to_find', 5), game.get('idle_shake_timer', 3),
+                              game.get('shake_intensity', 4), game.get('shake_frequency_x', 12),
+                              game.get('shake_frequency_y', 15), game.get('points_per_object', 10),
+                              game.get('completion_percentage', 100), game_id))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO hiddenobjectsettings 
+                            (game_id, toys_to_find, idle_shake_timer, shake_intensity,
+                             shake_frequency_x, shake_frequency_y, points_per_object, completion_percentage)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (game_id, game.get('toys_to_find', 5), game.get('idle_shake_timer', 3),
+                              game.get('shake_intensity', 4), game.get('shake_frequency_x', 12),
+                              game.get('shake_frequency_y', 15), game.get('points_per_object', 10),
+                              game.get('completion_percentage', 100)))
+
+                # Update Mini Puzzle settings
+                elif game_name == 'Mini Puzzle':
+                    cursor.execute("SELECT settings_id FROM minipuzzlesettings WHERE game_id = %s", (game_id,))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        cursor.execute("""
+                            UPDATE minipuzzlesettings 
+                            SET puzzle_rows = %s, puzzle_cols = %s, points_per_piece = %s,
+                                completion_percentage = %s
+                            WHERE game_id = %s
+                        """, (game.get('puzzle_rows', 2), game.get('puzzle_cols', 2),
+                              game.get('points_per_piece', 25), game.get('completion_percentage', 100), game_id))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO minipuzzlesettings 
+                            (game_id, puzzle_rows, puzzle_cols, points_per_piece, completion_percentage)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (game_id, game.get('puzzle_rows', 2), game.get('puzzle_cols', 2),
+                              game.get('points_per_piece', 25), game.get('completion_percentage', 100)))
+
+            return True
+
+    except Exception as e:
+        st.error(f"Error saving game to database: {e}")
+        return False
+
+
+def insert_default_data():
+    """Insert default levels and games if database is empty"""
+    try:
+        with db.get_connection() as (conn, cursor):
+            # Check and insert default levels
+            cursor.execute("SELECT COUNT(*) as count FROM game_levels")
+            result = cursor.fetchone()
+
+            if result['count'] == 0:
+                default_levels = [
+                    "Level 1",
+                    "Level 2",
+                    "Level 3",
+                    "Level 4",
+                    "Level 5",
+                    "Bonus"
+                ]
+                for level_name in default_levels:
+                    cursor.execute("""
+                        INSERT INTO game_levels (level_name)
+                        VALUES (%s)
+                    """, (level_name,))
+
+            # Check if games exist
+            cursor.execute("SELECT COUNT(*) as count FROM game")
+            result = cursor.fetchone()
+
+            if result['count'] == 0:
+                # Get level IDs
+                cursor.execute("SELECT level_id, level_name FROM game_levels")
+                levels_map = {row['level_name']: row['level_id'] for row in cursor.fetchall()}
+
+                default_games = [
+                    {
+                        "game_name": "Catch Game",
+                        "description": "Catch falling objects to improve hand-eye coordination",
+                        "difficulty": "Easy",
+                        "time_limit": 60,
+                        "points": 100,
+                        "level_name": "Level 1",
+                        "settings": {
+                            "target_circles": 5,
+                            "target_squares": 5,
+                            "target_triangles": 5,
+                            "starting_lives": 5,
+                            "points_per_shape": 10,
+                            "completion_percentage": 100,
+                            "fall_speed_min": 4,
+                            "fall_speed_max": 7,
+                            "spawn_delay": 2.0,
+                            "basket_speed": 12
+                        }
+                    },
+                    {
+                        "game_name": "Hidden Object",
+                        "description": "Find hidden objects in complex scenes to enhance observation skills",
+                        "difficulty": "Easy",
+                        "time_limit": 90,
+                        "points": 100,
+                        "level_name": "Level 2",
+                        "settings": {
+                            "toys_to_find": 5,
+                            "idle_shake_timer": 3,
+                            "shake_intensity": 4,
+                            "shake_frequency_x": 12,
+                            "shake_frequency_y": 15,
+                            "points_per_object": 10,
+                            "completion_percentage": 100
+                        }
+                    },
+                    {
+                        "game_name": "Mini Puzzle",
+                        "description": "Solve puzzles to improve problem-solving abilities",
+                        "difficulty": "Medium",
+                        "time_limit": 90,
+                        "points": 100,
+                        "level_name": "Level 3",
+                        "settings": {
+                            "puzzle_rows": 2,
+                            "puzzle_cols": 2,
+                            "points_per_piece": 25,
+                            "completion_percentage": 100
+                        }
+                    },
+                    {
+                        "game_name": "Name and Remember",
+                        "description": "Memory game to enhance recall and recognition",
+                        "difficulty": "Medium",
+                        "time_limit": 90,
+                        "points": 100,
+                        "level_name": "Level 4",
+                        "settings": {}
+                    },
+                    {
+                        "game_name": "Maze Game",
+                        "description": "Navigate through mazes to improve spatial awareness",
+                        "difficulty": "Hard",
+                        "time_limit": 150,
+                        "points": 100,
+                        "level_name": "Level 5",
+                        "settings": {}
+                    },
+                    {
+                        "game_name": "Knowledge Game",
+                        "description": "Test your knowledge with trivia questions",
+                        "difficulty": "Hard",
+                        "time_limit": 120,
+                        "points": 100,
+                        "level_name": "Bonus",
+                        "settings": {}
+                    }
+                ]
+
+                for game_data in default_games:
+                    level_id = levels_map.get(game_data['level_name'])
+                    cursor.execute("""
+                        INSERT INTO game (game_name, description, difficulty, time_limit, points, level_id)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (game_data['game_name'], game_data['description'],
+                          game_data['difficulty'], game_data['time_limit'],
+                          game_data['points'], level_id))
+
+                    game_id = cursor.lastrowid
+
+                    if game_data['game_name'] == 'Catch Game':
+                        settings = game_data['settings']
+                        cursor.execute("""
+                            INSERT INTO catchgamesettings 
+                            (game_id, target_circles, target_squares, target_triangles, starting_lives,
+                             points_per_shape, completion_percentage, fall_speed_min, fall_speed_max,
+                             spawn_delay, basket_speed)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (game_id, settings['target_circles'], settings['target_squares'],
+                              settings['target_triangles'], settings['starting_lives'],
+                              settings['points_per_shape'], settings['completion_percentage'],
+                              settings['fall_speed_min'], settings['fall_speed_max'],
+                              settings['spawn_delay'], settings['basket_speed']))
+
+                    elif game_data['game_name'] == 'Hidden Object':
+                        settings = game_data['settings']
+                        cursor.execute("""
+                            INSERT INTO hiddenobjectsettings 
+                            (game_id, toys_to_find, idle_shake_timer, shake_intensity,
+                             shake_frequency_x, shake_frequency_y, points_per_object, completion_percentage)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (game_id, settings['toys_to_find'], settings['idle_shake_timer'],
+                              settings['shake_intensity'], settings['shake_frequency_x'],
+                              settings['shake_frequency_y'], settings['points_per_object'],
+                              settings['completion_percentage']))
+
+                    elif game_data['game_name'] == 'Mini Puzzle':
+                        settings = game_data['settings']
+                        cursor.execute("""
+                            INSERT INTO minipuzzlesettings 
+                            (game_id, puzzle_rows, puzzle_cols, points_per_piece, completion_percentage)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (game_id, settings['puzzle_rows'], settings['puzzle_cols'],
+                              settings['points_per_piece'], settings['completion_percentage']))
+
+    except Exception as e:
+        st.error(f"Error inserting default data: {e}")
+
+
+# -----------------------------
+# HELPER FUNCTIONS FOR GAME SETTINGS
+# -----------------------------
+
 def render_catch_game_settings(prefix="", default_values=None):
     if default_values is None:
         default_values = {}
+
+    # Ensure spawn_delay is float
+    spawn_delay_value = float(default_values.get("spawn_delay", 2.0))
+
     col1, col2, col3 = st.columns(3)
     with col1:
         circles = st.number_input("Circles to catch", min_value=0, max_value=30,
@@ -152,26 +467,9 @@ def render_catch_game_settings(prefix="", default_values=None):
         speed_max = st.number_input("Max fall speed", min_value=1, max_value=15,
                                     value=default_values.get("fall_speed_max", 7), key=f"{prefix}max")
         spawn_delay = st.number_input("Spawn delay (sec)", min_value=0.5, max_value=5.0, step=0.1,
-                                      value=default_values.get("spawn_delay", 2.0), key=f"{prefix}delay")
+                                      value=spawn_delay_value, key=f"{prefix}delay")
         basket_speed = st.number_input("Basket speed", min_value=5, max_value=20,
                                        value=default_values.get("basket_speed", 12), key=f"{prefix}basket")
-    # Question mode
-    question_enabled = st.checkbox("Enable question mode (color/shape quiz)",
-                                   value=default_values.get("question_mode_enabled", True), key=f"{prefix}q_enabled")
-
-    # Handle questions JSON without showing UI
-    if question_enabled:
-        if default_values and "questions" in default_values:
-            questions_json = default_values["questions"]
-        else:
-            default_questions = [
-                {"shape": "square", "correct": "green", "choices": ["green", "blue"]},
-                {"shape": "triangle", "correct": "yellow", "choices": ["yellow", "pink"]},
-                {"shape": "circle", "correct": "blue", "choices": ["blue", "green"]}
-            ]
-            questions_json = json.dumps(default_questions)
-    else:
-        questions_json = "[]"
 
     return {
         "target_circles": circles,
@@ -183,13 +481,10 @@ def render_catch_game_settings(prefix="", default_values=None):
         "fall_speed_min": speed_min,
         "fall_speed_max": speed_max,
         "spawn_delay": spawn_delay,
-        "basket_speed": basket_speed,
-        "question_mode_enabled": question_enabled,
-        "questions": questions_json
+        "basket_speed": basket_speed
     }
 
 
-# Helper to render Hidden Object Game specific fields
 def render_hidden_object_settings(prefix="", default_values=None):
     if default_values is None:
         default_values = {}
@@ -253,7 +548,6 @@ def render_hidden_object_settings(prefix="", default_values=None):
             help="Points awarded for finding each object"
         )
 
-    # Completion percentage in a separate row
     st.markdown("### 🎯 Game Completion Settings")
     completion_percentage = st.slider(
         "Completion Required (%)",
@@ -275,17 +569,13 @@ def render_hidden_object_settings(prefix="", default_values=None):
     }
 
 
-# Helper to render Mini Puzzle Game specific fields
 def render_mini_puzzle_settings(prefix="", default_values=None):
     if default_values is None:
         default_values = {}
 
-    # Calculate points per piece based on total pieces
     def calculate_points_per_piece(rows, cols):
         total_pieces = rows * cols
-        # Base points: 100 / total_pieces, then round to nearest 5
         base_points = 100 / total_pieces
-        # Round to nearest 5 (minimum 5, maximum 100)
         points = max(5, min(100, round(base_points / 5) * 5))
         return points
 
@@ -311,16 +601,9 @@ def render_mini_puzzle_settings(prefix="", default_values=None):
     with col2:
         total_pieces = puzzle_rows * puzzle_cols
         st.info(f"📊 **Total Pieces:** {total_pieces}")
-
-        # Auto-calculate points per piece based on dimensions
         auto_points = calculate_points_per_piece(puzzle_rows, puzzle_cols)
-
-        # Display as informational text (not editable)
         st.markdown(f"**Points per Piece:** `{auto_points}` points")
-        st.caption(
-            "✨ Points are automatically calculated based on puzzle size (100 ÷ total pieces, rounded to nearest 5)")
-
-        # Show formula explanation
+        st.caption("✨ Points are automatically calculated based on puzzle size")
         st.markdown(f"*Formula: 100 ÷ {total_pieces} = {100 / total_pieces:.1f} → rounded to {auto_points}*")
 
     st.markdown("### 🎯 Game Completion Settings")
@@ -333,7 +616,6 @@ def render_mini_puzzle_settings(prefix="", default_values=None):
         help="Percentage of pieces needed to complete the puzzle"
     )
 
-    # Calculate max possible points
     max_points = total_pieces * auto_points
     points_needed = int(max_points * (completion_percentage / 100))
     st.caption(f"💰 **Max Possible Points:** {max_points} points")
@@ -348,53 +630,74 @@ def render_mini_puzzle_settings(prefix="", default_values=None):
 
 
 # -----------------------------
-# DISPLAY GAMES BY LEVEL WITH WIDE POPOVER EDIT
+# INITIALIZE DATABASE AND LOAD DATA
+# -----------------------------
+insert_default_data()
+levels = get_levels_from_db()
+
+# Make sure levels is a list and not empty
+if not levels:
+    levels = ["Level 1", "Level 2", "Level 3", "Level 4", "Level 5", "Bonus"]
+
+st.session_state.games_data = load_games_from_db()
+
+# Check for success message to display (from previous save operation)
+if st.session_state.get('show_success', False):
+    # Show balloon animation
+    st.balloons()
+    # Show success message
+    st.success(st.session_state.success_message)
+    # Clear the flag
+    st.session_state.show_success = False
+    st.session_state.success_message = ""
+
+# -----------------------------
+# DISPLAY GAMES BY LEVEL
 # -----------------------------
 st.subheader("📚 Game Library")
-levels = ["Level 1", "Level 2", "Level 3", "Level 4", "Level 5", "Bonus"]
-tabs = st.tabs(levels)
 
-for idx, level in enumerate(levels):
-    with tabs[idx]:
-        level_games = [game for game in st.session_state.games_data if game["level"] == level]
-        if level_games:
-            for game in level_games:
-                with st.container():
-                    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-                    with col1:
-                        st.markdown(f"### 🎮 {game['game_name']}")
-                        st.caption(game['description'])
-                    with col2:
-                        st.markdown("**Difficulty**")
-                        difficulty_color = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}
-                        st.write(f"{difficulty_color.get(game['difficulty'], '⚪')} {game['difficulty']}")
-                        st.markdown("**Time Limit**")
-                        st.write(f"⏱️ {game['time_limit']} sec")
-                    with col3:
-                        st.markdown("**Points**")
-                        st.write(f"⭐ {game['points']}")
-                        # Show game-specific stats
-                        if "target_circles" in game and game.get("game_name") == "Catch Game":
-                            st.markdown("**Targets**")
-                            st.write(
-                                f"🔵 {game['target_circles']} 🟩 {game['target_squares']} 🔺 {game['target_triangles']}")
-                        elif "toys_to_find" in game and game.get("game_name") == "Hidden Object":
-                            st.markdown("**Toys**")
-                            st.write(f"🧸 {game['toys_to_find']} items")
-                            st.markdown("**Points per object**")
-                            st.write(f"⭐ {game.get('points_per_object', 10)}")
-                        elif "puzzle_rows" in game and game.get("game_name") == "Mini Puzzle":
-                            total_pieces = game.get("puzzle_rows", 2) * game.get("puzzle_cols", 2)
-                            st.markdown("**Puzzle Size**")
-                            st.write(
-                                f"🧩 {game.get('puzzle_rows', 2)}x{game.get('puzzle_cols', 2)} ({total_pieces} pieces)")
-                            st.markdown("**Points per piece**")
-                            st.write(f"⭐ {game.get('points_per_piece', 25)} (auto-calculated)")
-                    with col4:
-                        st.markdown("**Actions**")
+# Create tabs only if levels exist and is a list
+if levels and isinstance(levels, list):
+    tabs = st.tabs(levels)
 
-                        # EDIT BUTTON (popover)
-                        with st.popover("✏️ Edit", use_container_width=True):
+    for idx, level in enumerate(levels):
+        with tabs[idx]:
+            level_games = [game for game in st.session_state.games_data if game.get("level") == level]
+            if level_games:
+                for game in level_games:
+                    with st.container():
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        with col1:
+                            st.markdown(f"### 🎮 {game['game_name']}")
+                            st.caption(game['description'])
+                        with col2:
+                            st.markdown("**Difficulty**")
+                            difficulty_color = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}
+                            st.write(f"{difficulty_color.get(game['difficulty'], '⚪')} {game['difficulty']}")
+                            st.markdown("**Time Limit**")
+                            st.write(f"⏱️ {game['time_limit']} sec")
+                        with col3:
+                            st.markdown("**Points**")
+                            st.write(f"⭐ {game['points']}")
+                            if "target_circles" in game and game.get("game_name") == "Catch Game":
+                                st.markdown("**Targets**")
+                                st.write(
+                                    f"🔵 {game['target_circles']} 🟩 {game['target_squares']} 🔺 {game['target_triangles']}")
+                            elif "toys_to_find" in game and game.get("game_name") == "Hidden Object":
+                                st.markdown("**Toys**")
+                                st.write(f"🧸 {game['toys_to_find']} items")
+                                st.markdown("**Points per object**")
+                                st.write(f"⭐ {game.get('points_per_object', 10)}")
+                            elif "puzzle_rows" in game and game.get("game_name") == "Mini Puzzle":
+                                total_pieces = game.get("puzzle_rows", 2) * game.get("puzzle_cols", 2)
+                                st.markdown("**Puzzle Size**")
+                                st.write(
+                                    f"🧩 {game.get('puzzle_rows', 2)}x{game.get('puzzle_cols', 2)} ({total_pieces} pieces)")
+                                st.markdown("**Points per piece**")
+                                st.write(f"⭐ {game.get('points_per_piece', 25)} (auto-calculated)")
+
+                        # EDIT BUTTON
+                        with st.popover("✏️ Edit Game", use_container_width=True):
                             st.subheader(f"Edit {game['game_name']}")
 
                             col_a, col_b = st.columns(2)
@@ -403,7 +706,7 @@ for idx, level in enumerate(levels):
                                 edit_level = st.selectbox(
                                     "Level",
                                     levels,
-                                    index=levels.index(game["level"]),
+                                    index=levels.index(game["level"]) if game["level"] in levels else 0,
                                     key=f"edit_level_{game['id']}"
                                 )
                                 edit_game_name = st.text_input(
@@ -440,7 +743,11 @@ for idx, level in enumerate(levels):
                                     help="Base points awarded for completing the game"
                                 )
 
-                            # Catch Game specific settings
+                            # Game specific settings
+                            catch_updates = None
+                            hidden_updates = None
+                            puzzle_updates = None
+
                             if game["game_name"] == "Catch Game":
                                 st.markdown("### 🎯 Catch Game Specific Settings")
                                 defaults = {
@@ -452,20 +759,15 @@ for idx, level in enumerate(levels):
                                     "completion_percentage": game.get("completion_percentage", 100),
                                     "fall_speed_min": game.get("fall_speed_min", 4),
                                     "fall_speed_max": game.get("fall_speed_max", 7),
-                                    "spawn_delay": game.get("spawn_delay", 2.0),
-                                    "basket_speed": game.get("basket_speed", 12),
-                                    "question_mode_enabled": game.get("question_mode_enabled", True),
-                                    "questions": game.get("questions", "[]")
+                                    "spawn_delay": float(game.get("spawn_delay", 2.0)),
+                                    "basket_speed": game.get("basket_speed", 12)
                                 }
                                 catch_updates = render_catch_game_settings(
                                     prefix=f"edit_{game['id']}_",
                                     default_values=defaults
                                 )
-                            else:
-                                catch_updates = None
 
-                            # Hidden Object Game specific settings
-                            if game["game_name"] == "Hidden Object":
+                            elif game["game_name"] == "Hidden Object":
                                 st.markdown("### 🔍 Hidden Object Game Specific Settings")
                                 defaults = {
                                     "toys_to_find": game.get("toys_to_find", 5),
@@ -480,11 +782,8 @@ for idx, level in enumerate(levels):
                                     prefix=f"edit_{game['id']}_",
                                     default_values=defaults
                                 )
-                            else:
-                                hidden_updates = None
 
-                            # Mini Puzzle Game specific settings
-                            if game["game_name"] == "Mini Puzzle":
+                            elif game["game_name"] == "Mini Puzzle":
                                 st.markdown("### 🧩 Mini Puzzle Specific Settings")
                                 defaults = {
                                     "puzzle_rows": game.get("puzzle_rows", 2),
@@ -496,44 +795,42 @@ for idx, level in enumerate(levels):
                                     prefix=f"edit_{game['id']}_",
                                     default_values=defaults
                                 )
-                            else:
-                                puzzle_updates = None
 
                             if st.button("💾 Save Changes", type="primary", key=f"save_{game['id']}"):
-                                game["level"] = edit_level
-                                game["game_name"] = edit_game_name
-                                game["description"] = edit_description
-                                game["difficulty"] = edit_difficulty
-                                game["time_limit"] = edit_time_limit
-                                game["points"] = edit_points
+                                # Prepare game data for saving
+                                game_data = {
+                                    "game_id": game.get('game_id'),
+                                    "level": edit_level,
+                                    "game_name": edit_game_name,
+                                    "description": edit_description,
+                                    "difficulty": edit_difficulty,
+                                    "time_limit": edit_time_limit,
+                                    "points": edit_points
+                                }
 
                                 if catch_updates:
-                                    game.update(catch_updates)
-
+                                    game_data.update(catch_updates)
                                 if hidden_updates:
-                                    game.update(hidden_updates)
-
+                                    game_data.update(hidden_updates)
                                 if puzzle_updates:
-                                    game.update(puzzle_updates)
+                                    game_data.update(puzzle_updates)
 
-                                for i, g in enumerate(st.session_state.games_data):
-                                    if g["id"] == game["id"]:
-                                        st.session_state.games_data[i] = game
-                                        break
+                                # Save to database
+                                if save_game_to_db(game_data):
+                                    # Store success message in session state
+                                    st.session_state.show_success = True
+                                    st.session_state.success_message = f"✅ {game['game_name']} has been updated successfully!"
+                                    # Reload games from database
+                                    st.session_state.games_data = load_games_from_db()
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to save game!")
 
-                                st.success("✅ Game updated successfully!")
-                                st.rerun()
-
-                        # DELETE BUTTON
-                        if st.button("🗑️ Delete", key=f"delete_{game['id']}", use_container_width=True):
-                            st.session_state.games_data = [
-                                g for g in st.session_state.games_data if g["id"] != game["id"]
-                            ]
-                            st.rerun()
-
-                    st.divider()
-        else:
-            st.info(f"No games available for {level}")
+                        st.divider()
+            else:
+                st.info(f"No games available for {level}")
+else:
+    st.error("No levels found in database. Please check your database connection.")
 
 # -----------------------------
 # STATISTICS SECTION
